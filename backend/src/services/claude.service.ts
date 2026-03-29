@@ -16,22 +16,11 @@ export class ClaudeService {
       const message = await this.client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 2048,
+        system: `Voce corrige transcricoes de audio de pareceres psicossociais. Corrija ortografia, pontuacao e padronize termos tecnicos juridicos e psicossociais (ECA, medidas socioeducativas, ato infracional, etc.). Mantenha o tom original. Retorne somente o texto corrigido.`,
         messages: [
           {
             role: 'user',
-            content: `Corrija este texto transcrito de uma avaliacao tecnica psicossocial de adolescente em conflito com a lei, em portugues brasileiro.
-
-Instrucoes:
-- Corrija erros de ortografia, pontuacao e formatacao
-- Padronize termos tecnicos juridicos e psicossociais (ECA, medidas socioeducativas, ato infracional, etc.)
-- Mantenha o conteudo original intacto, apenas melhore a legibilidade
-- Nao adicione informacoes que nao estejam no texto original
-- Nao use formatacao markdown, retorne apenas texto simples
-
-Texto a corrigir:
-${text}
-
-Texto corrigido:`,
+            content: text,
           },
         ],
       });
@@ -56,19 +45,20 @@ Texto corrigido:`,
         messages: [
           {
             role: 'user',
-            content: `Gere um resumo estruturado desta avaliacao tecnica de adolescente em conflito com a lei, para subsidiar relatorio ao juiz. Em portugues brasileiro.
+            content: `Gere um resumo estruturado deste texto em portugues brasileiro. O contexto e uma avaliacao tecnica psicossocial.
 
 Instrucoes:
 - Seja conciso e objetivo
 - Identifique os pontos principais mencionados
 - Use formato de lista simples com marcadores (-)
 - Nao invente informacoes que nao estejam no texto
-- Se alguma categoria nao tiver informacao, omita-a
+- Se nenhuma categoria se aplicar, faca um resumo simples do conteudo
 - NAO inclua titulos como "Resumo:" no inicio - comece direto com o conteudo
+- Se o texto for muito curto ou simples, apenas resuma o que foi dito
 
 Categorias a considerar (se presentes no texto):
-- Identificacao do adolescente
-- Ato infracional em questao
+- Identificacao do avaliado
+- Situacao em questao
 - Contexto familiar
 - Situacao escolar/ocupacional
 - Fatores de risco identificados
@@ -76,7 +66,7 @@ Categorias a considerar (se presentes no texto):
 - Comportamento durante a avaliacao
 - Consideracoes tecnicas
 
-Texto da avaliacao:
+Texto:
 ${text}`,
           },
         ],

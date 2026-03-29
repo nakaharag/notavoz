@@ -58,10 +58,28 @@ AUTH_PASSWORD=your-secure-password
 
 4. Start the application:
 ```bash
-docker-compose up
+docker compose up --build
 ```
 
 5. Open http://localhost:3001
+
+## Development with Hot Reload
+
+For development, use the dev compose file which enables hot reload:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+**Features:**
+- Source code (`src/`) mounted as volumes - changes reflect immediately
+- Backend runs NestJS in watch mode
+- Frontend runs React dev server with hot reload
+- No rebuild needed for code changes (only for `package.json` changes)
+
+**Ports:**
+- Backend: http://localhost:3000
+- Frontend: http://localhost:3001
 
 ## Usage
 

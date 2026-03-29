@@ -9,12 +9,39 @@ import {
   UseGuards,
   NotFoundException,
 } from '@nestjs/common';
-import { RecordsService, PatientRecord, CreateRecordInput } from '@services/records.service';
+import { RecordsService, PatientRecord } from '@services/records.service';
 import { AuthGuard } from '../auth/auth.guard';
+import { IsString, IsOptional } from 'class-validator';
 
+class CreateRecordDto {
+  @IsString()
+  @IsOptional()
+  patientName?: string;
+
+  @IsString()
+  @IsOptional()
+  rawTranscript?: string;
+
+  @IsString()
+  @IsOptional()
+  correctedTranscript?: string;
+
+  @IsString()
+  @IsOptional()
+  summary?: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+}
 
 class UpdateRecordDto {
+  @IsString()
+  @IsOptional()
   patientName?: string;
+
+  @IsString()
+  @IsOptional()
   notes?: string;
 }
 
@@ -40,7 +67,7 @@ export class RecordsController {
   }
 
   @Post()
-  async create(@Body() data: CreateRecordInput): Promise<PatientRecord> {
+  async create(@Body() data: CreateRecordDto): Promise<PatientRecord> {
     return this.recordsService.create(data);
   }
 

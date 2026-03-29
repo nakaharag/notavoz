@@ -1,8 +1,11 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
 import { ClaudeService } from '@services/claude.service';
 import { AuthGuard } from '../auth/auth.guard';
+import { IsString, IsNotEmpty } from 'class-validator';
 
 class GenerateReportDto {
+  @IsString()
+  @IsNotEmpty()
   text: string;
 }
 

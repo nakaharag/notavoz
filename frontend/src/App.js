@@ -577,6 +577,17 @@ function App() {
                 </div>
               )}
 
+              {/* Original Transcription */}
+              {transcript && (
+                <div className="content-box">
+                  <div className="content-box-header">
+                    <h2 className="content-box-title">Transcricao Original</h2>
+                    <span className="content-box-label">Whisper</span>
+                  </div>
+                  <div className="text-display">{transcript}</div>
+                </div>
+              )}
+
               {/* Editable Notes */}
               <div className="content-box">
                 <div className="content-box-header">

@@ -35,7 +35,7 @@ export class SpeechService {
 
       // Use native fetch with FormData
       const formData = new FormData();
-      const fileBlob = new Blob([convertedAudioBuffer], { type: 'audio/mpeg' });
+      const fileBlob = new Blob([new Uint8Array(convertedAudioBuffer)], { type: 'audio/mpeg' });
       formData.append('file', fileBlob, 'audio.mp3');
       formData.append('model', 'whisper-1');
       formData.append('language', 'pt');
