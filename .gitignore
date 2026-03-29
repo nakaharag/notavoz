@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+
+# Backend
+/backend/dist
+/backend/node_modules
+/backend/.cache
+/backend/coverage
+/backend/data/
+
+# Frontend
+/frontend/build
+/frontend/node_modules
+/frontend/coverage
+/frontend/.eslintcache
+/frontend/dist
+/frontend/.cache
+
+
+# Deployment docs (contains server-specific info)
+DEPLOYMENT.md
+
+# Internal roadmap
+ROADMAP.md
+
+# SSL certificates
+/certbot/
