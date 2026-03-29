@@ -19,10 +19,10 @@ services:
       - 8.8.4.4
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.backend-http.rule=Host(`${BACKEND_DOMAIN}`)"
+      - "traefik.http.routers.backend-http.rule=Host(`api.notavoz.com.br`)"
       - "traefik.http.routers.backend-http.entrypoints=http"
       - "traefik.http.routers.backend-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.backend-https.rule=Host(`${BACKEND_DOMAIN}`)"
+      - "traefik.http.routers.backend-https.rule=Host(`api.notavoz.com.br`)"
       - "traefik.http.routers.backend-https.entrypoints=https"
       - "traefik.http.routers.backend-https.tls=true"
       - "traefik.http.routers.backend-https.tls.certresolver=letsencrypt"
@@ -40,10 +40,10 @@ services:
       - '3001:3000'
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend-http.rule=Host(`${FRONTEND_DOMAIN}`) || Host(`${FRONTEND_DOMAIN_WWW}`)"
+      - "traefik.http.routers.frontend-http.rule=Host(`notavoz.com.br`) || Host(`www.notavoz.com.br`)"
       - "traefik.http.routers.frontend-http.entrypoints=http"
       - "traefik.http.routers.frontend-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.frontend-https.rule=Host(`${FRONTEND_DOMAIN}`) || Host(`${FRONTEND_DOMAIN_WWW}`)"
+      - "traefik.http.routers.frontend-https.rule=Host(`notavoz.com.br`) || Host(`www.notavoz.com.br`)"
       - "traefik.http.routers.frontend-https.entrypoints=https"
       - "traefik.http.routers.frontend-https.tls=true"
       - "traefik.http.routers.frontend-https.tls.certresolver=letsencrypt"
