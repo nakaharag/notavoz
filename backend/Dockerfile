@@ -1,6 +1,6 @@
-FROM node:22
+FROM node:22-alpine
 
-RUN apt-get update && apt-get install -y ffmpeg
+RUN apk add --no-cache ffmpeg
 RUN corepack enable && corepack prepare pnpm@latest --activate
 
 WORKDIR /app
@@ -15,4 +15,4 @@ RUN pnpm run build
 
 EXPOSE 3000
 
-CMD ["pnpm", "run", "start:dev"]
+CMD ["pnpm", "run", "start:prod"]
