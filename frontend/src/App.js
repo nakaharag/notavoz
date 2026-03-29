@@ -361,9 +361,8 @@ function App() {
   };
 
   // ==================== AUDIO PLAYBACK (Browser Speech Synthesis - Free) ====================
-  const handlePlayReport = () => {
-    const textToPlay = notes || correctedTranscript || transcript;
-    if (!textToPlay) return;
+  const playText = (text) => {
+    if (!text) return;
 
     // Check if browser supports speech synthesis
     if (!('speechSynthesis' in window)) {
@@ -374,9 +373,9 @@ function App() {
     // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
-    const utterance = new SpeechSynthesisUtterance(textToPlay);
+    const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'pt-BR';
-    utterance.rate = 0.9; // Slightly slower for better clarity
+    utterance.rate = 0.9;
     utterance.pitch = 1;
 
     // Try to find a Portuguese voice
@@ -392,6 +391,10 @@ function App() {
     };
 
     window.speechSynthesis.speak(utterance);
+  };
+
+  const handlePlayReport = () => {
+    playText(notes || correctedTranscript || transcript);
   };
 
   // ==================== HELPERS ====================
@@ -426,7 +429,10 @@ function App() {
     return (
       <div className="login-container">
         <div className="login-box">
-          <h1 className="login-title">NotaVoz</h1>
+          <div className="login-brand">
+            <img src="/logo.svg" alt="NotaVoz" className="login-logo" />
+            <h1 className="login-title">NotaVoz</h1>
+          </div>
           <form className="login-form" onSubmit={handleLogin}>
             <div className="form-group">
               <label className="form-label">Usuario</label>
@@ -465,7 +471,10 @@ function App() {
     <div className="app-container">
       {/* Header */}
       <header className="header">
-        <h1 className="header-title">NotaVoz</h1>
+        <div className="header-brand">
+          <img src="/logo.svg" alt="NotaVoz" className="header-logo" />
+          <h1 className="header-title">NotaVoz</h1>
+        </div>
         <div className="header-user">
           <button className="logout-button" onClick={handleLogout}>
             Sair
@@ -519,7 +528,10 @@ function App() {
                   onClick={handleStartRecording}
                   disabled={isProcessing}
                 >
-                  <span className="record-icon">&#9679;</span>
+                  <svg className="record-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="9" y="2" width="6" height="12" rx="3"/>
+                    <path d="M5 10v1a7 7 0 0014 0v-1M12 18v4M8 22h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"/>
+                  </svg>
                   Gravar
                 </button>
               ) : (
@@ -527,22 +539,29 @@ function App() {
                   className="record-button stop"
                   onClick={handleStopRecording}
                 >
-                  <span className="record-icon">&#9632;</span>
+                  <svg className="record-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="6" y="6" width="12" height="12" rx="2"/>
+                  </svg>
                   Parar
                 </button>
               )}
             </div>
 
-            {/* Audio Level Indicator */}
+            {/* Audio Level Indicator - Waveform */}
             {recording && (
-              <div className="audio-level-container">
-                <div className="audio-level-bar">
-                  <div
-                    className="audio-level-fill"
-                    style={{ width: `${audioLevel}%` }}
-                  />
+              <div className="audio-waveform-container">
+                <div className="audio-waveform">
+                  {[...Array(12)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="waveform-bar"
+                      style={{
+                        height: `${Math.max(15, Math.min(100, audioLevel * (0.5 + Math.random())))}%`,
+                        animationDelay: `${i * 0.05}s`
+                      }}
+                    />
+                  ))}
                 </div>
-                <p className="audio-level-text">Nivel do audio</p>
               </div>
             )}
 
@@ -568,10 +587,15 @@ function App() {
             <>
               {/* Summary */}
               {summary && (
-                <div className="content-box">
+                <div className="content-box content-box-ai">
                   <div className="content-box-header">
-                    <h2 className="content-box-title">Resumo</h2>
-                    <span className="content-box-label">IA</span>
+                    <h2 className="content-box-title">
+                      <span className="ai-indicator">&#10024;</span>
+                      Resumo
+                    </h2>
+                    <button className="play-btn" onClick={() => playText(summary)} title="Ouvir">
+                      <span className="play-icon">&#9658;</span>
+                    </button>
                   </div>
                   <div className="text-display">{summary}</div>
                 </div>
@@ -582,16 +606,24 @@ function App() {
                 <div className="content-box">
                   <div className="content-box-header">
                     <h2 className="content-box-title">Transcricao Original</h2>
-                    <span className="content-box-label">Whisper</span>
+                    <button className="play-btn" onClick={() => playText(transcript)} title="Ouvir">
+                      <span className="play-icon">&#9658;</span>
+                    </button>
                   </div>
                   <div className="text-display">{transcript}</div>
                 </div>
               )}
 
               {/* Editable Notes */}
-              <div className="content-box">
+              <div className="content-box content-box-ai">
                 <div className="content-box-header">
-                  <h2 className="content-box-title">Notas da Consulta</h2>
+                  <h2 className="content-box-title">
+                    <span className="ai-indicator">&#10024;</span>
+                    Notas da Consulta
+                  </h2>
+                  <button className="play-btn" onClick={() => playText(notes)} title="Ouvir">
+                    <span className="play-icon">&#9658;</span>
+                  </button>
                 </div>
                 <textarea
                   className="text-area"
@@ -605,9 +637,6 @@ function App() {
               <div className="action-buttons">
                 <button className="btn btn-success" onClick={saveRecord}>
                   Salvar Registro
-                </button>
-                <button className="btn btn-primary" onClick={handlePlayReport}>
-                  Ouvir Texto
                 </button>
                 <button className="btn btn-neutral" onClick={clearForm}>
                   Limpar
@@ -675,7 +704,10 @@ function App() {
               clearForm();
             }}
           >
-            &#8592; Voltar
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M19 12H5M12 19l-7-7 7-7"/>
+            </svg>
+            Voltar
           </button>
 
           <div className="record-meta">
@@ -700,19 +732,30 @@ function App() {
 
           {/* Summary */}
           {summary && (
-            <div className="content-box">
+            <div className="content-box content-box-ai">
               <div className="content-box-header">
-                <h2 className="content-box-title">Resumo</h2>
-                <span className="content-box-label">IA</span>
+                <h2 className="content-box-title">
+                  <span className="ai-indicator">&#10024;</span>
+                  Resumo
+                </h2>
+                <button className="play-btn" onClick={() => playText(summary)} title="Ouvir">
+                  <span className="play-icon">&#9658;</span>
+                </button>
               </div>
               <div className="text-display">{summary}</div>
             </div>
           )}
 
           {/* Notes */}
-          <div className="content-box">
+          <div className="content-box content-box-ai">
             <div className="content-box-header">
-              <h2 className="content-box-title">Notas da Consulta</h2>
+              <h2 className="content-box-title">
+                <span className="ai-indicator">&#10024;</span>
+                Notas da Consulta
+              </h2>
+              <button className="play-btn" onClick={() => playText(notes)} title="Ouvir">
+                <span className="play-icon">&#9658;</span>
+              </button>
             </div>
             <textarea
               className="text-area"
@@ -721,12 +764,14 @@ function App() {
             />
           </div>
 
-          {/* Original Transcript (collapsible) */}
+          {/* Original Transcript */}
           {transcript && (
             <div className="content-box">
               <div className="content-box-header">
                 <h2 className="content-box-title">Transcricao Original</h2>
-                <span className="content-box-label">Bruto</span>
+                <button className="play-btn" onClick={() => playText(transcript)} title="Ouvir">
+                  <span className="play-icon">&#9658;</span>
+                </button>
               </div>
               <div className="text-display">{transcript}</div>
             </div>
@@ -736,9 +781,6 @@ function App() {
           <div className="action-buttons">
             <button className="btn btn-success" onClick={updateRecord}>
               Salvar Alteracoes
-            </button>
-            <button className="btn btn-primary" onClick={handlePlayReport}>
-              Ouvir Texto
             </button>
             <button
               className="btn btn-danger"

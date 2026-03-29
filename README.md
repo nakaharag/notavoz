@@ -105,11 +105,11 @@ notavoz/
 │   ├── src/
 │   │   ├── auth/      # Authentication module
 │   │   ├── controllers/
+│   │   ├── entities/  # TypeORM entities
 │   │   └── services/
-│   └── data/          # Patient records (JSON)
 ├── nginx/             # Production proxy config
-├── docker-compose.yml # Development setup
-└── docker-compose.prod.yml # Production setup
+├── docker-compose.yml # Production setup
+└── docker-compose.dev.yml # Development setup (hot reload)
 ```
 
 ## API Endpoints
