@@ -13,10 +13,25 @@ services:
       - JWT_SECRET=${JWT_SECRET:-dev-secret-key}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3001}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://notavoz.com.br}
     dns:
       - 8.8.8.8
       - 8.8.4.4
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS redirect
+      - "traefik.http.routers.backend-http.rule=Host(`api.notavoz.com.br`)"
+      - "traefik.http.routers.backend-http.entrypoints=http"
+      - "traefik.http.routers.backend-http.middlewares=redirect-to-https"
+      # HTTPS router
+      - "traefik.http.routers.backend-https.rule=Host(`api.notavoz.com.br`)"
+      - "traefik.http.routers.backend-https.entrypoints=https"
+      - "traefik.http.routers.backend-https.tls=true"
+      - "traefik.http.routers.backend-https.tls.certresolver=letsencrypt"
+      # Service
+      - "traefik.http.services.backend.loadbalancer.server.port=3000"
+      # Middleware
+      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
     depends_on:
       - frontend
 
@@ -25,3 +40,21 @@ services:
       context: ./frontend
     ports:
       - '3001:3000'
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS redirect for main domain
+      - "traefik.http.routers.frontend-http.rule=Host(`notavoz.com.br`) || Host(`www.notavoz.com.br`)"
+      - "traefik.http.routers.frontend-http.entrypoints=http"
+      - "traefik.http.routers.frontend-http.middlewares=redirect-to-https"
+      # HTTPS router for main domain
+      - "traefik.http.routers.frontend-https.rule=Host(`notavoz.com.br`) || Host(`www.notavoz.com.br`)"
+      - "traefik.http.routers.frontend-https.entrypoints=https"
+      - "traefik.http.routers.frontend-https.tls=true"
+      - "traefik.http.routers.frontend-https.tls.certresolver=letsencrypt"
+      # Service
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+
+networks:
+  default:
+    external: true
+    name: coolify
