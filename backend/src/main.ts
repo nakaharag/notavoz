@@ -11,9 +11,12 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: '50mb' }));
 
   // Enable CORS - use environment variable for production
-  const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:3001';
+  const corsOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',').map(o => o.trim())
+    : ['http://localhost:3001'];
+
   app.enableCors({
-    origin: corsOrigin,
+    origin: corsOrigins,
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
     credentials: true,
   });
@@ -25,6 +28,6 @@ async function bootstrap() {
   }));
 
   await app.listen(3000);
-  console.log(`Server running on port 3000, CORS origin: ${corsOrigin}`);
+  console.log(`Server running on port 3000, CORS origins: ${corsOrigins.join(', ')}`);
 }
 bootstrap();

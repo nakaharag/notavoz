@@ -13,7 +13,7 @@ services:
       - JWT_SECRET=${JWT_SECRET:-dev-secret-key}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - CORS_ORIGIN=${CORS_ORIGIN:-https://notavoz.com.br}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://notavoz.com.br,https://www.notavoz.com.br}
     dns:
       - 8.8.8.8
       - 8.8.4.4
