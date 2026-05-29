@@ -7,7 +7,9 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml* ./
 
-RUN pnpm install
+# --prod=false forces devDependencies (e.g. @nestjs/cli) to install even when
+# NODE_ENV=production is injected at build time, so `nest build` is available.
+RUN pnpm install --prod=false
 
 COPY . .
 
