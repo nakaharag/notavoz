@@ -81,6 +81,23 @@ function App() {
     'Content-Type': 'application/json'
   });
 
+  // Wrapper para fetch que detecta token expirado e faz logout
+  const fetchWithAuth = async (url, options = {}) => {
+    const response = await fetch(url, options);
+
+    if (response.status === 401) {
+      localStorage.removeItem('authToken');
+      setAuthToken(null);
+      setIsAuthenticated(false);
+      setActiveTab('nova');
+      clearForm();
+      setMessage({ type: 'error', text: 'Sessao expirada. Por favor, faca login novamente.' });
+      throw new Error('Sessao expirada');
+    }
+
+    return response;
+  };
+
   // ==================== AUDIO LEVEL MONITORING ====================
   const startAudioLevelMonitoring = (audioStream) => {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -205,7 +222,7 @@ function App() {
       formData.append('audio', audioBlob, 'recording.webm');
 
       // Step 1: Transcribe
-      const transcribeResponse = await fetch(`${API_URL}/speech/transcribe`, {
+      const transcribeResponse = await fetchWithAuth(`${API_URL}/speech/transcribe`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${authToken}` },
         body: formData,
@@ -221,7 +238,7 @@ function App() {
 
       // Step 2: Process with Claude (correct + summarize)
       setProcessingStep('Processando com IA...');
-      const reportResponse = await fetch(`${API_URL}/report/generate`, {
+      const reportResponse = await fetchWithAuth(`${API_URL}/report/generate`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify({ text: transcribeData.transcription }),
@@ -250,7 +267,7 @@ function App() {
   const loadRecords = async () => {
     setLoadingRecords(true);
     try {
-      const response = await fetch(`${API_URL}/records`, {
+      const response = await fetchWithAuth(`${API_URL}/records`, {
         headers: getAuthHeaders(),
       });
 
@@ -281,7 +298,7 @@ function App() {
         notes: notes,
       };
 
-      const response = await fetch(`${API_URL}/records`, {
+      const response = await fetchWithAuth(`${API_URL}/records`, {
         method: 'POST',
         headers: getAuthHeaders(),
         body: JSON.stringify(recordData),
@@ -308,7 +325,7 @@ function App() {
         notes: notes,
       };
 
-      const response = await fetch(`${API_URL}/records/${selectedRecord.id}`, {
+      const response = await fetchWithAuth(`${API_URL}/records/${selectedRecord.id}`, {
         method: 'PUT',
         headers: getAuthHeaders(),
         body: JSON.stringify(recordData),
@@ -333,7 +350,7 @@ function App() {
     if (!recordToDelete) return;
 
     try {
-      const response = await fetch(`${API_URL}/records/${recordToDelete.id}`, {
+      const response = await fetchWithAuth(`${API_URL}/records/${recordToDelete.id}`, {
         method: 'DELETE',
         headers: getAuthHeaders(),
       });
