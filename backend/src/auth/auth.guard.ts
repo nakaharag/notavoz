@@ -25,7 +25,7 @@ export class AuthGuard implements CanActivate {
       throw new UnauthorizedException('Token invalido ou expirado');
     }
 
-    request.user = decoded;
+    request.user = { id: decoded.id, username: decoded.username };
     return true;
   }
 }

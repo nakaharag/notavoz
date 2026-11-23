@@ -27,6 +27,8 @@ function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState('');
   const [audioLevel, setAudioLevel] = useState(0);
+  const [pendingAudio, setPendingAudio] = useState(null);
+  const recordingTimer = useRef(null);
 
   // Audio analyzer refs
   const analyserRef = useRef(null);
@@ -61,7 +63,7 @@ function App() {
 
   // Auto-hide messages
   useEffect(() => {
-    if (message) {
+    if (message && message.type !== 'error') {
       const timer = setTimeout(() => setMessage(null), 5000);
       return () => clearTimeout(timer);
     }
@@ -83,14 +85,22 @@ function App() {
 
   // Wrapper para fetch que detecta token expirado e faz logout
   const fetchWithAuth = async (url, options = {}) => {
-    const response = await fetch(url, options);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 145000);
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal: controller.signal });
+    } catch (error) {
+      throw new Error(error.name === 'AbortError' ? 'Tempo esgotado. Tente novamente.' : 'Falha de conexao. Tente novamente.');
+    } finally {
+      clearTimeout(timer);
+    }
 
     if (response.status === 401) {
       localStorage.removeItem('authToken');
       setAuthToken(null);
       setIsAuthenticated(false);
       setActiveTab('nova');
-      clearForm();
       setMessage({ type: 'error', text: 'Sessao expirada. Por favor, faca login novamente.' });
       throw new Error('Sessao expirada');
     }
@@ -145,7 +155,8 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Usuario ou senha incorretos');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Falha no login');
       }
 
       const data = await response.json();
@@ -185,11 +196,17 @@ function App() {
         };
 
         newMediaRecorder.onstop = async () => {
+          clearTimeout(recordingTimer.current);
+          newStream.getTracks().forEach(track => track.stop());
+          setRecording(false);
           stopAudioLevelMonitoring();
-          await processRecording(audioChunks);
+          await processRecording(new Blob(audioChunks, { type: newMediaRecorder.mimeType }));
         };
 
         newMediaRecorder.start();
+        recordingTimer.current = setTimeout(() => {
+          if (newMediaRecorder.state !== 'inactive') newMediaRecorder.stop();
+        }, 295000);
         setMediaRecorder(newMediaRecorder);
         setStream(newStream);
         setRecording(true);
@@ -212,12 +229,14 @@ function App() {
     stopAudioLevelMonitoring();
   };
 
-  const processRecording = async (audioChunks) => {
+  const processRecording = async (audioBlob) => {
+    setPendingAudio(audioBlob);
+    setMessage(null);
     setIsProcessing(true);
     setProcessingStep('Transcrevendo audio...');
 
     try {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      if (audioBlob.size > 10 * 1024 * 1024) throw new Error('Audio excede 10 MiB. Grave um trecho menor.');
       const formData = new FormData();
       formData.append('audio', audioBlob, 'recording.webm');
 
@@ -235,27 +254,39 @@ function App() {
 
       const transcribeData = await transcribeResponse.json();
       setTranscript(transcribeData.transcription);
+      setCorrectedTranscript('');
+      setSummary('');
+      setNotes(transcribeData.transcription);
 
-      // Step 2: Process with Claude (correct + summarize)
-      setProcessingStep('Processando com IA...');
-      const reportResponse = await fetchWithAuth(`${API_URL}/report/generate`, {
-        method: 'POST',
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ text: transcribeData.transcription }),
-      });
-
-      if (!reportResponse.ok) {
-        const errorData = await reportResponse.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Erro ao processar com IA');
-      }
-
-      const reportData = await reportResponse.json();
-      setCorrectedTranscript(reportData.correctedTranscript || transcribeData.transcription);
-      setSummary(reportData.summary || '');
-      setNotes(reportData.correctedTranscript || transcribeData.transcription);
+      setPendingAudio(null);
+      await generateReport(transcribeData.transcription);
 
     } catch (error) {
-      console.error('Processing failed:', error);
+      setMessage({ type: 'error', text: error.message });
+    } finally {
+      setIsProcessing(false);
+      setProcessingStep('');
+    }
+  };
+
+  const generateReport = async (rawText) => {
+    setProcessingStep('Processando com IA...');
+    const response = await fetchWithAuth(`${API_URL}/report/generate`, {
+      method: 'POST', headers: getAuthHeaders(), body: JSON.stringify({ text: rawText }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.message || 'Erro ao gerar texto. Tente novamente.');
+    setCorrectedTranscript(data.correctedTranscript);
+    setSummary(data.summary);
+    setNotes(data.correctedTranscript);
+  };
+
+  const retryGeneration = async () => {
+    setIsProcessing(true);
+    setMessage(null);
+    try {
+      await generateReport(transcript);
+    } catch (error) {
       setMessage({ type: 'error', text: error.message });
     } finally {
       setIsProcessing(false);
@@ -284,7 +315,7 @@ function App() {
   };
 
   const saveRecord = async () => {
-    if (!correctedTranscript && !notes) {
+    if (!transcript && !correctedTranscript && !notes) {
       setMessage({ type: 'error', text: 'Nao ha conteudo para salvar' });
       return;
     }
@@ -323,6 +354,8 @@ function App() {
       const recordData = {
         patientName: patientName,
         notes: notes,
+        correctedTranscript,
+        summary,
       };
 
       const response = await fetchWithAuth(`${API_URL}/records/${selectedRecord.id}`, {
@@ -403,7 +436,7 @@ function App() {
     }
 
     utterance.onerror = (event) => {
-      console.error('Speech synthesis error:', event);
+      // Do not log the event: it can include the spoken text.
       setMessage({ type: 'error', text: 'Erro ao reproduzir audio' });
     };
 
@@ -416,6 +449,7 @@ function App() {
 
   // ==================== HELPERS ====================
   const clearForm = () => {
+    setPendingAudio(null);
     setTranscript('');
     setCorrectedTranscript('');
     setSummary('');
@@ -584,7 +618,7 @@ function App() {
 
             <p className={`recording-status ${recording ? 'active' : ''}`}>
               {recording
-                ? 'Gravando... Clique em Parar quando terminar.'
+                ? 'Gravando... Limite de 5 minutos. Clique em Parar quando terminar.'
                 : 'Clique no botao para iniciar a gravacao.'}
             </p>
           </div>
@@ -599,9 +633,20 @@ function App() {
             </div>
           )}
 
+          {!isProcessing && pendingAudio && (
+            <button className="btn btn-primary" onClick={() => processRecording(pendingAudio)}>
+              Tentar transcricao novamente
+            </button>
+          )}
+
           {/* Results */}
-          {!isProcessing && (correctedTranscript || summary) && (
+          {!isProcessing && (transcript || correctedTranscript || summary) && (
             <>
+              {transcript && !correctedTranscript && (
+                <button className="btn btn-primary" onClick={retryGeneration}>
+                  Tentar geracao novamente
+                </button>
+              )}
               {/* Summary */}
               {summary && (
                 <div className="content-box content-box-ai">
@@ -761,6 +806,12 @@ function App() {
               </div>
               <div className="text-display">{summary}</div>
             </div>
+          )}
+
+          {transcript && !correctedTranscript && (
+            <button className="btn btn-primary" disabled={isProcessing} onClick={retryGeneration}>
+              {isProcessing ? 'Processando com IA...' : 'Tentar geracao novamente'}
+            </button>
           )}
 
           {/* Notes */}

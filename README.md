@@ -5,8 +5,8 @@ Voice-to-text clinical notes application designed for psychologists. Record pati
 ## Features
 
 - **Voice Recording** - Record consultations directly in the browser
-- **Portuguese Transcription** - Powered by OpenAI Whisper (95-97% accuracy)
-- **AI Processing** - Automatic spelling correction and clinical summary generation (Claude AI)
+- **Portuguese Transcription** - Powered by OpenAI speech-to-text
+- **AI Processing** - Automatic spelling correction and clinical summary generation (OpenAI)
 - **Record Management** - Save, edit, and organize patient session notes
 - **Text-to-Speech** - Listen back to notes (Browser Speech API - free)
 - **Simple Authentication** - Fixed user/password login
@@ -18,50 +18,44 @@ Voice-to-text clinical notes application designed for psychologists. Record pati
 |-------|------------|
 | Frontend | React 18 |
 | Backend | NestJS (Node.js) |
-| Speech-to-Text | OpenAI Whisper |
-| AI Processing | Claude AI (Anthropic) |
+| Speech-to-Text | OpenAI Transcriptions API |
+| AI Processing | OpenAI Responses API |
 | Text-to-Speech | Browser Speech API |
 | Storage | JSON files |
 | Package Manager | pnpm |
-| Deployment | Docker + Nginx |
+| Deployment | Docker Compose + Caddy |
 
-## Quick Start
+## Deploy no Lightsail
 
-### Prerequisites
+Piloto exclusivamente com dados fictícios: [handoff, limites, testes e rollback](docs/PILOT-HANDOFF.md). Use somente `docker-compose.prod.yml` para este piloto; o Compose raiz é legado (Coolify).
 
-- Docker & Docker Compose
-- pnpm (for local development): `npm install -g pnpm`
-- API Keys:
-  - [OpenAI API Key](https://platform.openai.com/api-keys) (transcription)
-  - [Anthropic API Key](https://console.anthropic.com/) (AI processing)
+1. Instale Docker Engine e o plugin Docker Compose na VM Ubuntu. No firewall do Lightsail, libere TCP 80 e 443 e restrinja SSH ao seu IP.
+2. Copie o projeto para a VM, entre na pasta do projeto e configure o ambiente.
 
-### Setup
-
-1. Clone the repository:
-```bash
-git clone https://github.com/your-username/notavoz.git
-cd notavoz
+```sh
+umask 077
+cp -n .env.example .env
+nano .env
 ```
 
-2. Create environment file:
-```bash
-cp .env.example .env
+Defina `JWT_SECRET` (ao menos 32 caracteres), `OPENAI_API_KEY`, `SEED_USERNAME` e `SEED_PASSWORD` (primeiro usuário, 8+ caracteres). Para gerar um segredo, use `openssl rand -hex 32`. Preencha `NOTAVOZ_DOMAIN` com o domínio do piloto; o exemplo não é domínio de publicação. Outras contas: veja "Contas de usuário" em `docs/PILOT-HANDOFF.md`.
+
+3. Compile as imagens na VM, em sequência. Esse passo pode ser feito antes de apontar o DNS.
+
+```sh
+sudo bash deploy.sh --prepare
 ```
 
-3. Edit `.env` with your API keys:
-```env
-OPENAI_API_KEY=sk-your-key
-ANTHROPIC_API_KEY=sk-ant-your-key
-AUTH_USER=your-username
-AUTH_PASSWORD=your-secure-password
+4. Na Cloudflare, use DNS only na emissão inicial. Aponte o registro A do domínio escolhido para `<IP_ESTATICO>` e faça o domínio de redirecionamento apontar para ele via CNAME. Verifique os registros AAAA dos dois hosts se a VM for publicada só em IPv4.
+5. Inicie os serviços. O Caddy tenta emitir os certificados quando o domínio já aponta para a VM.
+
+```sh
+sudo bash deploy.sh --start
+curl -fsSI https://<DOMINIO_DO_PILOTO>/
+curl -s -o /dev/null -w '%{http_code}\n' https://<DOMINIO_DO_PILOTO>/api/records
 ```
 
-4. Start the application:
-```bash
-docker compose up --build
-```
-
-5. Open http://localhost:3001
+A última chamada deve retornar HTTP 401 sem autenticação. Teste o login e uma transcrição fictícia no navegador. O volume `notavoz_data` guarda os registros. O volume `caddy_data` guarda os certificados.
 
 ## Development with Hot Reload
 
@@ -107,12 +101,14 @@ notavoz/
 │   │   ├── controllers/
 │   │   ├── entities/  # TypeORM entities
 │   │   └── services/
-├── nginx/             # Production proxy config
-├── docker-compose.yml # Production setup
+├── Caddyfile          # Proxy HTTPS de produção
+├── docker-compose.prod.yml # Produção no Lightsail
 └── docker-compose.dev.yml # Development setup (hot reload)
 ```
 
 ## API Endpoints
+
+Em produção, todos os caminhos abaixo recebem o prefixo `/api`; desenvolvimento mantém os caminhos originais.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -128,11 +124,13 @@ notavoz/
 
 | Variable | Description |
 |----------|-------------|
-| `AUTH_USER` | Login username |
-| `AUTH_PASSWORD` | Login password |
+| `SEED_USERNAME` | Initial user created in the database if missing |
+| `SEED_PASSWORD` | Password for that user (8+ characters) |
 | `JWT_SECRET` | Secret for JWT tokens |
-| `OPENAI_API_KEY` | OpenAI API key (Whisper) |
-| `ANTHROPIC_API_KEY` | Anthropic API key (Claude) |
+| `OPENAI_API_KEY` | Chave OpenAI para transcrição e texto |
+| `OPENAI_TRANSCRIPTION_MODEL` | Modelo de transcrição, padrão `gpt-transcribe` |
+| `OPENAI_TEXT_MODEL` | Modelo de texto, padrão `gpt-5.4-mini` |
+| `NOTAVOZ_DOMAIN`, `NOTAVOZ_WWW_DOMAIN` | Domínios usados pelo Caddy |
 
 ## License
 

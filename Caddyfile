@@ -1,0 +1,34 @@
+{
+	servers {
+		timeouts {
+			read_header 15s
+			read_body 30s
+			write 140s
+			idle 60s
+		}
+	}
+}
+
+{$NOTAVOZ_DOMAIN} {
+	encode zstd gzip
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy no-referrer
+
+	@api path /api /api/*
+	handle @api {
+		request_body {
+			max_size 11MB
+		}
+		# Preserve /api: Nest uses API_PREFIX=api in production.
+		reverse_proxy backend:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 125s
+			}
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

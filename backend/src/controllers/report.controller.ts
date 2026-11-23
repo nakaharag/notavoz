@@ -1,29 +1,25 @@
 import { Controller, Post, Body, UseGuards } from '@nestjs/common';
-import { ClaudeService } from '@services/claude.service';
+import { ReportService } from '../services/report.service';
+import { WorkLimitGuard } from '../work-limit.guard';
 import { AuthGuard } from '../auth/auth.guard';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, MaxLength, Matches } from 'class-validator';
 
 class GenerateReportDto {
   @IsString()
   @IsNotEmpty()
+  @MaxLength(30000)
+  @Matches(/\S/)
   text: string;
 }
 
 @Controller('report')
-@UseGuards(AuthGuard)
+@UseGuards(AuthGuard, WorkLimitGuard)
 export class ReportController {
-  constructor(private readonly claudeService: ClaudeService) {}
+  constructor(private readonly reportService: ReportService) {}
 
   @Post('generate')
   async generateReport(@Body() dto: GenerateReportDto) {
-    if (!dto.text || dto.text.trim().length === 0) {
-      return {
-        correctedTranscript: '',
-        summary: '',
-      };
-    }
-
-    const result = await this.claudeService.processTranscript(dto.text);
+    const result = await this.reportService.processTranscript(dto.text);
 
     return {
       correctedTranscript: result.correctedTranscript,

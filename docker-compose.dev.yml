@@ -10,11 +10,12 @@ services:
       - ./backend/data:/app/data
     environment:
       - NODE_ENV=development
-      - AUTH_USER=${AUTH_USER:-admin}
-      - AUTH_PASSWORD=${AUTH_PASSWORD:-admin123}
+      - SEED_USERNAME=${SEED_USERNAME:-admin}
+      - SEED_PASSWORD=${SEED_PASSWORD:-admin123}
       - JWT_SECRET=${JWT_SECRET:-dev-secret-key}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_TRANSCRIPTION_MODEL=${OPENAI_TRANSCRIPTION_MODEL:-gpt-transcribe}
+      - OPENAI_TEXT_MODEL=${OPENAI_TEXT_MODEL:-gpt-5.4-mini}
       - CORS_ORIGIN=http://localhost:3001
     dns:
       - 8.8.8.8

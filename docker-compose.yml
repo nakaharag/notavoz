@@ -8,11 +8,12 @@ services:
       - ./backend/data:/app/data
     environment:
       - NODE_ENV=production
-      - AUTH_USER=${AUTH_USER:-admin}
-      - AUTH_PASSWORD=${AUTH_PASSWORD:-admin123}
-      - JWT_SECRET=${JWT_SECRET:-dev-secret-key}
+      - SEED_USERNAME=${SEED_USERNAME:-}
+      - SEED_PASSWORD=${SEED_PASSWORD:-}
+      - JWT_SECRET=${JWT_SECRET:?Defina JWT_SECRET}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_TRANSCRIPTION_MODEL=${OPENAI_TRANSCRIPTION_MODEL:-gpt-transcribe}
+      - OPENAI_TEXT_MODEL=${OPENAI_TEXT_MODEL:-gpt-5.4-mini}
       - CORS_ORIGIN=${CORS_ORIGIN}
     dns:
       - 8.8.8.8

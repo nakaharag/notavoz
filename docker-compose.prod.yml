@@ -1,33 +1,106 @@
+name: notavoz-pilot
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '5m'
+    max-file: '2'
+
 services:
-  nginx:
-    image: nginx:alpine
+  caddy:
+    platform: linux/amd64
+    image: caddy:2-alpine
     ports:
       - '80:80'
       - '443:443'
+    environment:
+      NOTAVOZ_DOMAIN: ${NOTAVOZ_DOMAIN:?Defina o dominio do piloto}
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./frontend/build:/usr/share/nginx/html:ro
-      - ./certbot/conf:/etc/letsencrypt:ro
-      - ./certbot/www:/var/www/certbot:ro
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+    networks: [private, egress]
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 100
     restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   backend:
+    platform: linux/amd64
+    image: notavoz-backend:${RELEASE_TAG:-pilot}
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
-    env_file:
-      - .env
     environment:
-      - NODE_ENV=production
+      NODE_ENV: production
+      API_PREFIX: api
+      DATA_DIR: /app/data
+      NODE_OPTIONS: --max-old-space-size=384
+      SEED_USERNAME: ${SEED_USERNAME:-}
+      SEED_PASSWORD: ${SEED_PASSWORD:-}
+      LEGACY_OWNER: ${LEGACY_OWNER:-}
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?Defina OPENAI_API_KEY}
+      OPENAI_TEXT_MODEL: ${OPENAI_TEXT_MODEL:-gpt-5.4-mini}
+      OPENAI_TRANSCRIPTION_MODEL: ${OPENAI_TRANSCRIPTION_MODEL:-gpt-transcribe}
     volumes:
-      - ./backend/data:/app/data
+      - notavoz_data:/app/data
+    networks: [private, egress]
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 100
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    init: true
+    stop_grace_period: 135s
     restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
-  certbot:
-    image: certbot/certbot
-    volumes:
-      - ./certbot/conf:/etc/letsencrypt
-      - ./certbot/www:/var/www/certbot
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+  frontend:
+    platform: linux/amd64
+    image: notavoz-frontend:${RELEASE_TAG:-pilot}
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_API_URL: /api
+    networks: [private]
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 50
+    restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+networks:
+  private:
+    internal: true
+  egress:
+
+volumes:
+  notavoz_data:
+  caddy_data:
+  caddy_config:

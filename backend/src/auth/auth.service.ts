@@ -1,69 +1,39 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
-import * as crypto from 'crypto';
+import * as jwt from 'jsonwebtoken';
+import { User, UsersService } from './users.service';
 
 @Injectable()
 export class AuthService {
-  private readonly username: string;
-  private readonly password: string;
   private readonly jwtSecret: string;
 
-  constructor() {
-    this.username = process.env.AUTH_USER || 'admin';
-    this.password = process.env.AUTH_PASSWORD || 'admin123';
-    this.jwtSecret = process.env.JWT_SECRET || 'notavoz-secret-key-change-in-production';
-  }
-
-  async validateUser(username: string, password: string): Promise<boolean> {
-    return username === this.username && password === this.password;
+  constructor(private readonly users: UsersService) {
+    const production = process.env.NODE_ENV === 'production';
+    this.jwtSecret = process.env.JWT_SECRET || (production ? '' : 'notavoz-local-development-only');
+    if (production && (this.jwtSecret.length < 32 ||
+      /change|your-|placeholder|dev-secret|notavoz-secret/i.test(this.jwtSecret))) {
+      throw new Error('Configure JWT_SECRET aleatorio (32+ caracteres).');
+    }
   }
 
   async login(username: string, password: string): Promise<{ token: string }> {
-    const isValid = await this.validateUser(username, password);
-
-    if (!isValid) {
-      throw new UnauthorizedException('Usuario ou senha incorretos');
-    }
-
-    const token = this.generateToken(username);
-    return { token };
+    const user = await this.users.authenticate(username, password);
+    if (!user) throw new UnauthorizedException('Usuario ou senha incorretos');
+    return { token: jwt.sign({}, this.jwtSecret, {
+      algorithm: 'HS256', subject: String(user.id), issuer: 'notavoz',
+      audience: 'notavoz-web', expiresIn: '1h',
+    }) };
   }
 
-  private generateToken(username: string): string {
-    const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-
-    const payload = Buffer.from(JSON.stringify({
-      sub: username,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60), // 24 hours
-    })).toString('base64url');
-
-    const signature = crypto
-      .createHmac('sha256', this.jwtSecret)
-      .update(`${header}.${payload}`)
-      .digest('base64url');
-
-    return `${header}.${payload}.${signature}`;
-  }
-
-  verifyToken(token: string): { sub: string; iat: number; exp: number } | null {
+  verifyToken(token: string): User | null {
     try {
-      const parts = token.split('.');
-      if (parts.length !== 3) return null;
-
-      const [header, payload, signature] = parts;
-
-      const expectedSignature = crypto
-        .createHmac('sha256', this.jwtSecret)
-        .update(`${header}.${payload}`)
-        .digest('base64url');
-
-      if (signature !== expectedSignature) return null;
-
-      const decoded = JSON.parse(Buffer.from(payload, 'base64url').toString());
-
-      if (decoded.exp < Math.floor(Date.now() / 1000)) return null;
-
-      return decoded;
+      const decoded = jwt.verify(token, this.jwtSecret, {
+        algorithms: ['HS256'], issuer: 'notavoz', audience: 'notavoz-web', maxAge: '1h',
+      });
+      if (typeof decoded === 'string' || !Number.isFinite(decoded.exp) || !Number.isFinite(decoded.iat)) return null;
+      const id = Number(decoded.sub);
+      if (!Number.isInteger(id)) return null;
+      const user = this.users.findById(id);
+      return user && !user.disabled ? user : null;
     } catch {
       return null;
     }

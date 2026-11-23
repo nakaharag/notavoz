@@ -1,105 +1,68 @@
 import { Injectable } from '@nestjs/common';
-import * as ffmpeg from 'fluent-ffmpeg';
-import { Readable } from 'stream';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
+import { spawn } from 'child_process';
+import { apiError, openaiRequest } from './openai-api';
+
+export const MAX_AUDIO_BYTES = 10 * 1024 * 1024;
+export const MAX_AUDIO_SECONDS = 300;
 
 @Injectable()
 export class SpeechService {
-  private openaiApiKey: string;
-
-  constructor() {
-    this.openaiApiKey = process.env.OPENAI_API_KEY || '';
-  }
-
   async transcribeAudio(audioBuffer: Buffer): Promise<string> {
-    const audioStream = new Readable();
-    audioStream.push(audioBuffer);
-    audioStream.push(null);
-
-    let convertedAudioBuffer: Buffer;
-    try {
-      convertedAudioBuffer = await this.convertAudioToMp3(audioStream);
-    } catch (err) {
-      console.error('FFmpeg conversion error:', err);
-      throw new Error('Erro ao converter audio: ' + (err as Error).message);
+    if (!audioBuffer?.length || audioBuffer.length > MAX_AUDIO_BYTES) {
+      throw apiError('INVALID_INPUT', 'Envie audio de ate 10 MiB e 5 minutos.', 400);
     }
-
-    const tempDir = os.tmpdir();
-    const tempFile = path.join(tempDir, `audio-${Date.now()}.mp3`);
-
-    try {
-      fs.writeFileSync(tempFile, convertedAudioBuffer);
-      console.log(`Audio file saved: ${tempFile}, size: ${convertedAudioBuffer.length} bytes`);
-
-      // Use native fetch with FormData
-      const formData = new FormData();
-      const fileBlob = new Blob([new Uint8Array(convertedAudioBuffer)], { type: 'audio/mpeg' });
-      formData.append('file', fileBlob, 'audio.mp3');
-      formData.append('model', 'whisper-1');
-      formData.append('language', 'pt');
-
-      const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${this.openaiApiKey}`,
-        },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('OpenAI API error:', response.status, errorText);
-        if (response.status === 401) {
-          throw new Error('Chave da API OpenAI invalida.');
-        }
-        if (response.status === 429) {
-          throw new Error('Creditos OpenAI esgotados. Adicione creditos em platform.openai.com');
-        }
-        throw new Error(`Erro OpenAI: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const transcription = data.text;
-
-      if (!transcription || transcription.trim().length === 0) {
-        throw new Error('Transcricao vazia. Tente falar mais alto ou mais perto do microfone.');
-      }
-
-      console.log('Transcription successful:', transcription.substring(0, 100) + '...');
-      return transcription.trim();
-
-    } catch (err) {
-      console.error('Transcription error:', err);
-      const error = err as Error & { cause?: Error };
-      if (error.cause?.message?.includes('ECONNRESET') || error.message?.includes('fetch')) {
-        throw new Error('Erro de conexao com OpenAI. Tente novamente.');
-      }
-      throw error;
-    } finally {
-      if (fs.existsSync(tempFile)) {
-        fs.unlinkSync(tempFile);
-      }
+    const wav = await this.convertAudio(audioBuffer);
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(wav)], { type: 'audio/wav' }), 'audio.wav');
+    form.append('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'gpt-transcribe');
+    form.append('response_format', 'json');
+    const data = await openaiRequest('audio/transcriptions', form);
+    if (typeof data.text !== 'string' || !data.text.trim()) {
+      throw apiError('EMPTY_TRANSCRIPTION', 'Transcricao vazia. Verifique o audio e tente novamente.', 422, true);
     }
+    return data.text.trim();
   }
 
-  private convertAudioToMp3(audioStream: Readable): Promise<Buffer> {
+  // Decode to bounded PCM: sample count checks real duration, including files with
+  // absent/forged metadata. No input/output audio is written to disk.
+  private convertAudio(input: Buffer): Promise<Buffer> {
     return new Promise((resolve, reject) => {
+      const pcmLimit = MAX_AUDIO_SECONDS * 16000 * 2;
+      const child = spawn('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin',
+        '-protocol_whitelist', 'pipe', '-threads', '1', '-i', 'pipe:0',
+        '-vn', '-ac', '1', '-ar', '16000', '-threads', '1', '-f', 's16le', 'pipe:1'],
+      { stdio: ['pipe', 'pipe', 'ignore'] });
       const chunks: Buffer[] = [];
-
-      const command = ffmpeg(audioStream)
-        .format('mp3')
-        .audioChannels(1)
-        .audioFrequency(16000)
-        .audioBitrate('64k')
-        .on('error', (err) => reject(err));
-
-      const ffmpegStream = command.pipe();
-
-      ffmpegStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      ffmpegStream.on('end', () => resolve(Buffer.concat(chunks)));
-      ffmpegStream.on('error', (err) => reject(err));
+      let size = 0;
+      let failure: Error;
+      const timer = setTimeout(() => {
+        failure = apiError('AUDIO_TIMEOUT', 'Conversao de audio excedeu 30 segundos.', 504, true);
+        child.kill('SIGKILL');
+      }, 30_000);
+      child.stdin.on('error', () => { /* Exit status handles invalid input / EPIPE. */ });
+      child.stdout.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > pcmLimit) {
+          failure = apiError('INVALID_INPUT', 'Audio excede 5 minutos.', 400);
+          child.kill('SIGKILL');
+        } else chunks.push(chunk);
+      });
+      child.on('error', () => {
+        failure = apiError('AUDIO_UNAVAILABLE', 'Conversor de audio indisponivel.');
+      });
+      child.on('close', code => {
+        clearTimeout(timer);
+        if (failure) return reject(failure);
+        if (code !== 0 || !size) return reject(apiError('INVALID_INPUT', 'Audio invalido ou formato nao suportado.', 400));
+        const header = Buffer.alloc(44);
+        header.write('RIFF'); header.writeUInt32LE(36 + size, 4); header.write('WAVEfmt ', 8);
+        header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
+        header.writeUInt32LE(16000, 24); header.writeUInt32LE(32000, 28);
+        header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+        header.write('data', 36); header.writeUInt32LE(size, 40);
+        resolve(Buffer.concat([header, ...chunks]));
+      });
+      child.stdin.end(input);
     });
   }
 }

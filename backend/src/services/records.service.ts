@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger, OnModuleInit } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID as uuidv4 } from 'crypto';
+import { DatabaseService, dataDirectory } from '../db/database.service';
+import { UsersService } from '../auth/users.service';
 
 export interface PatientRecord {
   id: string;
@@ -22,138 +24,97 @@ export interface CreateRecordInput {
   notes?: string;
 }
 
+type UpdatableField = 'patientName' | 'correctedTranscript' | 'summary' | 'notes';
+
+const UPDATABLE: Record<UpdatableField, string> = {
+  patientName: 'patient_name',
+  correctedTranscript: 'corrected_transcript',
+  summary: 'summary',
+  notes: 'notes',
+};
+
+const COLUMNS = `id, created_at AS createdAt, updated_at AS updatedAt, patient_name AS patientName,
+  raw_transcript AS rawTranscript, corrected_transcript AS correctedTranscript, summary, notes`;
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 @Injectable()
-export class RecordsService {
-  private readonly dataDir: string;
-  private readonly recordsDir: string;
-  private readonly indexFile: string;
+export class RecordsService implements OnModuleInit {
+  private readonly logger = new Logger(RecordsService.name);
 
-  constructor() {
-    this.dataDir = path.join(process.cwd(), 'data');
-    this.recordsDir = path.join(this.dataDir, 'records');
-    this.indexFile = path.join(this.recordsDir, 'index.json');
-    this.ensureDirectories();
+  constructor(private readonly database: DatabaseService, private readonly users: UsersService) {}
+
+  private get db() {
+    return this.database.db;
   }
 
-  private ensureDirectories(): void {
-    if (!fs.existsSync(this.dataDir)) {
-      fs.mkdirSync(this.dataDir, { recursive: true });
+  async onModuleInit(): Promise<void> {
+    await this.users.seedFromEnvironment();
+    this.migrateLegacyJson();
+  }
+
+  private migrateLegacyJson(): void {
+    const recordsDir = path.join(dataDirectory(), 'records');
+    if (!fs.existsSync(path.join(recordsDir, 'index.json'))) return;
+    const ownerName = process.env.LEGACY_OWNER || process.env.SEED_USERNAME || (process.env.NODE_ENV === 'production' ? '' : 'admin');
+    const owner = ownerName ? this.users.findByUsername(ownerName) : null;
+    if (!owner) {
+      this.logger.warn('Registros JSON antigos encontrados, mas o dono (LEGACY_OWNER) nao existe. Migracao adiada.');
+      return;
     }
-    if (!fs.existsSync(this.recordsDir)) {
-      fs.mkdirSync(this.recordsDir, { recursive: true });
-    }
-    if (!fs.existsSync(this.indexFile)) {
-      fs.writeFileSync(this.indexFile, JSON.stringify([], null, 2));
-    }
-  }
-
-  private getIndex(): string[] {
-    try {
-      const content = fs.readFileSync(this.indexFile, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      return [];
-    }
-  }
-
-  private saveIndex(index: string[]): void {
-    fs.writeFileSync(this.indexFile, JSON.stringify(index, null, 2));
-  }
-
-  private getRecordPath(id: string): string {
-    return path.join(this.recordsDir, `${id}.json`);
-  }
-
-  async findAll(): Promise<PatientRecord[]> {
-    const index = this.getIndex();
-    const records: PatientRecord[] = [];
-
-    for (const id of index) {
-      const record = await this.findById(id);
-      if (record) {
-        records.push(record);
+    const ids: string[] = JSON.parse(fs.readFileSync(path.join(recordsDir, 'index.json'), 'utf-8'));
+    const insert = this.db.prepare(`INSERT OR IGNORE INTO records
+      (id, user_id, patient_name, raw_transcript, corrected_transcript, summary, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    let migrated = 0;
+    this.db.transaction(() => {
+      for (const id of ids) {
+        if (!UUID_V4.test(id)) continue;
+        const file = path.join(recordsDir, `${id}.json`);
+        if (!fs.existsSync(file)) continue;
+        const r = JSON.parse(fs.readFileSync(file, 'utf-8'));
+        migrated += insert.run(id, owner.id, r.patientName ?? '', r.rawTranscript ?? '', r.correctedTranscript ?? '',
+          r.summary ?? '', r.notes ?? '', r.createdAt, r.updatedAt ?? r.createdAt).changes;
       }
-    }
-
-    return records.sort((a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    })();
+    fs.renameSync(recordsDir, `${recordsDir}.migrated-${new Date().toISOString().slice(0, 10)}`);
+    this.logger.log(`Registros JSON migrados para ${owner.username}: ${migrated}`);
   }
 
-  async findById(id: string): Promise<PatientRecord | null> {
-    const recordPath = this.getRecordPath(id);
-
-    if (!fs.existsSync(recordPath)) {
-      return null;
-    }
-
-    try {
-      const content = fs.readFileSync(recordPath, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      return null;
-    }
+  private assertUuid(id: string): void {
+    if (!UUID_V4.test(id)) throw new BadRequestException('ID UUID invalido');
   }
 
-  async create(data: CreateRecordInput): Promise<PatientRecord> {
+  async findAll(userId: number): Promise<PatientRecord[]> {
+    return this.db.prepare(`SELECT ${COLUMNS} FROM records WHERE user_id = ? ORDER BY created_at DESC`).all(userId) as PatientRecord[];
+  }
+
+  async findById(userId: number, id: string): Promise<PatientRecord | null> {
+    this.assertUuid(id);
+    return (this.db.prepare(`SELECT ${COLUMNS} FROM records WHERE id = ? AND user_id = ?`).get(id, userId) as PatientRecord | undefined) ?? null;
+  }
+
+  async create(userId: number, data: CreateRecordInput): Promise<PatientRecord> {
     const id = uuidv4();
     const now = new Date().toISOString();
-
-    const record: PatientRecord = {
-      id,
-      createdAt: now,
-      updatedAt: now,
-      patientName: data.patientName || '',
-      rawTranscript: data.rawTranscript || '',
-      correctedTranscript: data.correctedTranscript || '',
-      summary: data.summary || '',
-      notes: data.notes || '',
-    };
-
-    const recordPath = this.getRecordPath(id);
-    fs.writeFileSync(recordPath, JSON.stringify(record, null, 2));
-
-    const index = this.getIndex();
-    index.push(id);
-    this.saveIndex(index);
-
-    return record;
+    this.db.prepare(`INSERT INTO records
+      (id, user_id, patient_name, raw_transcript, corrected_transcript, summary, notes, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(id, userId, data.patientName || '', data.rawTranscript || '',
+      data.correctedTranscript || '', data.summary || '', data.notes || '', now, now);
+    return (await this.findById(userId, id)) as PatientRecord;
   }
 
-  async update(id: string, data: Partial<PatientRecord>): Promise<PatientRecord | null> {
-    const existing = await this.findById(id);
-
-    if (!existing) {
-      return null;
-    }
-
-    const updated: PatientRecord = {
-      ...existing,
-      ...data,
-      id: existing.id,
-      createdAt: existing.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const recordPath = this.getRecordPath(id);
-    fs.writeFileSync(recordPath, JSON.stringify(updated, null, 2));
-
-    return updated;
+  async update(userId: number, id: string, data: Partial<Record<UpdatableField, string>>): Promise<PatientRecord | null> {
+    const existing = await this.findById(userId, id);
+    if (!existing) return null;
+    const fields = (Object.keys(UPDATABLE) as UpdatableField[]).filter((key) => typeof data[key] === 'string');
+    const sets = [...fields.map((key) => `${UPDATABLE[key]} = ?`), 'updated_at = ?'];
+    const values = [...fields.map((key) => data[key] as string), new Date().toISOString()];
+    this.db.prepare(`UPDATE records SET ${sets.join(', ')} WHERE id = ? AND user_id = ?`).run(...values, id, userId);
+    return this.findById(userId, id);
   }
 
-  async delete(id: string): Promise<boolean> {
-    const recordPath = this.getRecordPath(id);
-
-    if (!fs.existsSync(recordPath)) {
-      return false;
-    }
-
-    fs.unlinkSync(recordPath);
-
-    const index = this.getIndex();
-    const newIndex = index.filter((recordId) => recordId !== id);
-    this.saveIndex(newIndex);
-
-    return true;
+  async delete(userId: number, id: string): Promise<boolean> {
+    this.assertUuid(id);
+    return this.db.prepare('DELETE FROM records WHERE id = ? AND user_id = ?').run(id, userId).changes === 1;
   }
 }
